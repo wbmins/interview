@@ -62,9 +62,48 @@
 
 - 5.1 Set方式注入
 
+    ```java
+    @Service
+    public class UserServiceImpl implements UserService {
+    
+        private UserMapper userMapper;
+    
+        @Autowired
+        public void setUserMapper(UserMapper userMapper) {
+            this.userMapper = userMapper;
+        }
+    
+    }
+    ```
+
 - 5.2 构造器注入
 
+    ```java
+    @Service
+    public class UserServiceImpl implements UserService {
+    
+        private final UserMapper userMapper;
+    
+        @Autowired
+        public UserServiceImpl(UserMapper userMapper) {
+            this.userMapper = userMapper;
+        }
+    
+    }
+    ```
+
 - 5.3 注解方式
+
+    ```java
+    @Service
+    public class UserServiceImpl implements UserService {
+        @Autowired
+        private UserMapper userMapper;
+        
+        //...
+    
+    }
+    ```
 
     - @Autowired 注解是按照类型（byType）装配依赖对象，默认情况下它要求依赖对象必须存在，如果允许null值，可以设置它的required属性为false。如果我们想使用按照名称（byName）来装配，可以结合@Qualifier注解一起使用。(通过类型匹配找到多个candidate,在没有@Qualifier、@Primary注解的情况下，会使用对象名作为最后的fallback匹配)
 
@@ -81,4 +120,69 @@
             @Resource的作用相当于@Autowired，只不过@Autowired按照byType自动注入
 
 ### 6. 循环依赖
+
+#### 6.1 是什么
+
+>> 从字面上来理解就是A依赖B的同时B也依赖了A
+
+![依赖](./img/Spring/%E5%BE%AA%E7%8E%AF.png)
+
+#### 6.2 什么情况的可以被处理
+
+|依赖情况	|依赖注入方式	|循环依赖是否被解决|
+|----------|-------------|--------------|
+|AB相互依赖（循环依赖）|	均采用@Autowried+@Lazy方法注入|	是|
+|AB相互依赖（循环依赖）|	均采用setter方法注入|	是|
+|AB相互依赖（循环依赖）|	均采用构造器注入	|否|
+|AB相互依赖（循环依赖）|	A中注入B的方式为setter方法，B中注入A的方式为构造器|	是|
+|AB相互依赖（循环依赖）|	B中注入A的方式为setter方法，A中注入B的方式为构造器|	否|
+
+
+#### 6.3 如何解决色
+
+- 简单的循环依赖（没有AOP）
+
+![简单](./img/Spring//%E7%AE%80%E5%8D%95%E5%BE%AA%E7%8E%AF%E4%BE%9D%E8%B5%96.png)
+
+- aop循环依赖
+
+![aop](./img//Spring//aop%E5%BE%AA%E7%8E%AF%E4%BE%9D%E8%B5%96.png)
+
+
+-  一级缓存 singleObjects
+
+>> 存放完整bean对象(已经初始化完毕，可使用的bean。)
+
+-  二级缓存 earlySingleObjects
+
+>> 存放不完整bean对象(已经实例化，但是还未进行属性注入及初始化的对象，提前曝光早产bean)
+
+-  三级缓存 singleFactories
+
+>> 存放bean工厂(提前暴露的一个单例工厂，二级缓存中存储的就是从这个工厂中获取到的对象)
+
+**Spring通过三级缓存解决了循环依赖，其中一级缓存为单例池（singletonObjects）,二级缓存为早期曝光对象earlySingletonObjects，三级缓存为早期曝光对象工厂（singletonFactories）。当A、B两个类发生循环引用时，在A完成实例化后，就使用实例化后的对象去创建一个对象工厂，并添加到三级缓存中，如果A被AOP代理，那么通过这个工厂获取到的就是A代理后的对象，如果A没有被AOP代理，那么这个工厂获取到的就是A实例化的对象。当A进行属性注入时，会去创建B，同时B又依赖了A，所以创建B的同时又会去调用getBean(a)来获取需要的依赖，此时的getBean(a)会从缓存中获取，第一步，先获取到三级缓存中的工厂；第二步，调用对象工工厂的getObject方法来获取到对应的对象，得到这个对象后将其注入到B中。紧接着B会走完它的生命周期流程，包括初始化、后置处理器等。当B创建完后，会将B再注入到A中，此时A再完成它的整个生命周期。至此，循环依赖结束！**
+
+- 为什么要使用三级缓存呢？二级缓存能解决循环依赖吗？
+
+>> 如果要使用二级缓存解决循环依赖，意味着所有Bean在实例化后就要完成AOP代理，这样违背了Spring设计的原则，Spring在设计之初就是通过AnnotationAwareAspectJAutoProxyCreator这个后置处理器来在Bean生命周期的最后一步来完成AOP代理，而不是在实例化后就立马进行AOP代理。从软件设计角度考虑，三个缓存代表三种不同的职责，根据单一职责原理，从设计角度就需分离三种职责的缓存，所以形成三级缓存的状态
+
 ### 7. Bean 生命周期
+
+- 实例化bean对象(通过构造方法或者工厂方法)
+
+- 设置对象属性(setter等)（依赖注入）
+
+- 如果Bean实现了BeanNameAware接口，工厂调用Bean的setBeanName()方法传递Bean的ID。（和下面的一条均属于检查Aware接口）
+
+- 如果Bean实现了BeanFactoryAware接口，工厂调用setBeanFactory()方法传入工厂自身
+
+- 将Bean实例传递给Bean的前置处理器的postProcessBeforeInitialization(Object bean, String beanname)方法
+
+- 调用Bean的初始化方法
+
+- 将Bean实例传递给Bean的后置处理器的postProcessAfterInitialization(Object bean, String beanname)方法
+
+- 使用Bean
+
+- 容器关闭之前，调用Bean的销毁方法
